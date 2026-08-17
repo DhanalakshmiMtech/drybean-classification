@@ -203,7 +203,7 @@ The application is intended to be deployed using Streamlit Community Cloud.
 
 Live application link:
 
-To be updated after deployment.
+https://drybean-classification-fucmjavkfneddeyqc3vtzv.streamlit.app/
 
 12. Conclusion
 
