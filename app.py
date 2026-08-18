@@ -51,14 +51,6 @@ st.markdown(
         margin-bottom: 25px;
     }
 
-    .metric-card {
-        background-color: #F1F8E9;
-        border-radius: 12px;
-        padding: 15px;
-        text-align: center;
-        border: 1px solid #C5E1A5;
-    }
-
     .section-title {
         color: #2E7D32;
         font-size: 25px;
@@ -147,7 +139,7 @@ uploaded_file = st.file_uploader(
 
 
 # ==========================================================
-# Load uploaded data
+# No file uploaded
 # ==========================================================
 
 if uploaded_file is None:
@@ -223,7 +215,23 @@ with st.expander("Preview uploaded test data"):
 # ==========================================================
 
 X_test = test_data.drop(columns=["Class"])
-y_test = test_data["Class"]
+
+# Convert target labels to strings so that
+# y_test and y_pred always have the same type.
+y_test = test_data["Class"].astype(str)
+
+
+# ==========================================================
+# Validate feature columns
+# ==========================================================
+
+if X_test.shape[1] == 0:
+
+    st.error(
+        "No feature columns were found in the uploaded dataset."
+    )
+
+    st.stop()
 
 
 # ==========================================================
@@ -242,7 +250,17 @@ if not os.path.exists(model_path):
     st.stop()
 
 
-model = joblib.load(model_path)
+try:
+
+    model = joblib.load(model_path)
+
+except Exception as error:
+
+    st.error(
+        f"Unable to load model: {error}"
+    )
+
+    st.stop()
 
 
 # ==========================================================
@@ -252,6 +270,12 @@ model = joblib.load(model_path)
 try:
 
     y_pred = model.predict(X_test)
+
+    # Convert predicted labels to strings
+    # to match y_test.
+    y_pred = pd.Series(
+        y_pred
+    ).astype(str).to_numpy()
 
     y_proba = model.predict_proba(X_test)
 
@@ -268,43 +292,67 @@ except Exception as error:
 # Calculate evaluation metrics
 # ==========================================================
 
-accuracy = accuracy_score(
-    y_test,
-    y_pred
-)
+try:
 
-auc = roc_auc_score(
-    y_test,
-    y_proba,
-    multi_class="ovr",
-    average="weighted"
-)
+    accuracy = accuracy_score(
+        y_test,
+        y_pred
+    )
 
-precision = precision_score(
-    y_test,
-    y_pred,
-    average="weighted",
-    zero_division=0
-)
+    precision = precision_score(
+        y_test,
+        y_pred,
+        average="weighted",
+        zero_division=0
+    )
 
-recall = recall_score(
-    y_test,
-    y_pred,
-    average="weighted",
-    zero_division=0
-)
+    recall = recall_score(
+        y_test,
+        y_pred,
+        average="weighted",
+        zero_division=0
+    )
 
-f1 = f1_score(
-    y_test,
-    y_pred,
-    average="weighted",
-    zero_division=0
-)
+    f1 = f1_score(
+        y_test,
+        y_pred,
+        average="weighted",
+        zero_division=0
+    )
 
-mcc = matthews_corrcoef(
-    y_test,
-    y_pred
-)
+    mcc = matthews_corrcoef(
+        y_test,
+        y_pred
+    )
+
+except Exception as error:
+
+    st.error(
+        f"Metric calculation failed: {error}"
+    )
+
+    st.stop()
+
+
+# ==========================================================
+# Calculate AUC
+# ==========================================================
+
+try:
+
+    auc = roc_auc_score(
+        y_test,
+        y_proba,
+        multi_class="ovr",
+        average="weighted"
+    )
+
+except Exception:
+
+    # If AUC cannot be calculated because of an
+    # unexpected class/probability mismatch, show
+    # a safe fallback instead of crashing the app.
+    auc = np.nan
 
 
 # ==========================================================
@@ -318,31 +366,68 @@ st.markdown(
 
 
 # ==========================================================
-# Metric cards
+# Metric cards - row 1
 # ==========================================================
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric("Accuracy", f"{accuracy:.4f}")
+
+    st.metric(
+        "Accuracy",
+        f"{accuracy:.4f}"
+    )
 
 with col2:
-    st.metric("AUC", f"{auc:.4f}")
+
+    if np.isnan(auc):
+
+        st.metric(
+            "AUC",
+            "N/A"
+        )
+
+    else:
+
+        st.metric(
+            "AUC",
+            f"{auc:.4f}"
+        )
 
 with col3:
-    st.metric("Precision", f"{precision:.4f}")
 
+    st.metric(
+        "Precision",
+        f"{precision:.4f}"
+    )
+
+
+# ==========================================================
+# Metric cards - row 2
+# ==========================================================
 
 col4, col5, col6 = st.columns(3)
 
 with col4:
-    st.metric("Recall", f"{recall:.4f}")
+
+    st.metric(
+        "Recall",
+        f"{recall:.4f}"
+    )
 
 with col5:
-    st.metric("F1 Score", f"{f1:.4f}")
+
+    st.metric(
+        "F1 Score",
+        f"{f1:.4f}"
+    )
 
 with col6:
-    st.metric("MCC", f"{mcc:.4f}")
+
+    st.metric(
+        "MCC",
+        f"{mcc:.4f}"
+    )
 
 
 # ==========================================================
@@ -354,7 +439,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-class_labels = sorted(y_test.unique())
+# Use labels from both actual and predicted values
+class_labels = sorted(
+    set(y_test.astype(str)) |
+    set(pd.Series(y_pred).astype(str))
+)
 
 cm = confusion_matrix(
     y_test,
@@ -368,7 +457,9 @@ cm_df = pd.DataFrame(
     columns=class_labels
 )
 
-fig, ax = plt.subplots(figsize=(9, 7))
+fig, ax = plt.subplots(
+    figsize=(9, 7)
+)
 
 sns.heatmap(
     cm_df,
@@ -379,13 +470,21 @@ sns.heatmap(
     ax=ax
 )
 
-ax.set_xlabel("Predicted Class")
-ax.set_ylabel("Actual Class")
+ax.set_xlabel(
+    "Predicted Class"
+)
+
+ax.set_ylabel(
+    "Actual Class"
+)
+
 ax.set_title(
     f"Confusion Matrix - {selected_model}"
 )
 
-st.pyplot(fig)
+st.pyplot(
+    fig
+)
 
 plt.close(fig)
 
@@ -406,7 +505,9 @@ report = classification_report(
     zero_division=0
 )
 
-report_df = pd.DataFrame(report).transpose()
+report_df = pd.DataFrame(
+    report
+).transpose()
 
 st.dataframe(
     report_df.round(4),
@@ -441,7 +542,12 @@ if os.path.exists(comparison_file):
     ]
 
     for column in numeric_columns:
-        comparison_df[column] = comparison_df[column].round(4)
+
+        if column in comparison_df.columns:
+
+            comparison_df[column] = (
+                comparison_df[column].round(4)
+            )
 
     st.dataframe(
         comparison_df,
