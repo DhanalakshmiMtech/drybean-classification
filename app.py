@@ -31,7 +31,7 @@ st.set_page_config(
 
 
 # ==========================================================
-# CUSTOM CSS
+# CUSTOM STYLING
 # ==========================================================
 
 st.markdown(
@@ -184,7 +184,7 @@ except Exception as error:
 
 
 # ==========================================================
-# VALIDATE TARGET COLUMN
+# VALIDATE CSV STRUCTURE
 # ==========================================================
 
 if "Class" not in test_data.columns:
@@ -197,7 +197,7 @@ if "Class" not in test_data.columns:
 
 
 # ==========================================================
-# DISPLAY DATA INFORMATION
+# DISPLAY UPLOADED DATA
 # ==========================================================
 
 st.success(
@@ -215,6 +215,89 @@ with st.expander("Preview uploaded test data"):
 
 
 # ==========================================================
+# CLEAN CLASS COLUMN
+# ==========================================================
+
+# Convert Class values to strings temporarily so that
+# mixed string/number values cannot cause comparison errors.
+
+test_data["Class"] = (
+    test_data["Class"]
+    .astype(str)
+    .str.strip()
+)
+
+
+# ==========================================================
+# HANDLE MISSING CLASS VALUES
+# ==========================================================
+
+invalid_class_values = {
+    "",
+    "nan",
+    "NaN",
+    "NAN",
+    "None",
+    "none",
+    "null",
+    "NULL"
+}
+
+
+test_data.loc[
+    test_data["Class"].isin(invalid_class_values),
+    "Class"
+] = np.nan
+
+
+missing_class_count = (
+    test_data["Class"].isna().sum()
+)
+
+
+if missing_class_count > 0:
+
+    st.warning(
+        f"{missing_class_count} row(s) with missing Class "
+        f"values were removed from the uploaded test dataset."
+    )
+
+    test_data = (
+        test_data
+        .dropna(subset=["Class"])
+        .reset_index(drop=True)
+    )
+
+
+# ==========================================================
+# CHECK WHETHER DATA REMAINS
+# ==========================================================
+
+if len(test_data) == 0:
+
+    st.error(
+        "No valid rows remain after removing missing Class values."
+    )
+
+    st.stop()
+
+
+# ==========================================================
+# SHOW ACTUAL CLASSES IN UPLOADED FILE
+# ==========================================================
+
+detected_classes = sorted(
+    test_data["Class"].unique()
+)
+
+
+st.info(
+    "Classes detected in uploaded file: "
+    + ", ".join(detected_classes)
+)
+
+
+# ==========================================================
 # SEPARATE FEATURES AND TARGET
 # ==========================================================
 
@@ -222,7 +305,6 @@ X_test = test_data.drop(
     columns=["Class"]
 )
 
-# Keep original target for display
 y_test_original = test_data["Class"]
 
 
@@ -261,9 +343,13 @@ except Exception as error:
 
 try:
 
-    y_pred_original = model.predict(X_test)
+    y_pred_original = model.predict(
+        X_test
+    )
 
-    y_proba = model.predict_proba(X_test)
+    y_proba = model.predict_proba(
+        X_test
+    )
 
 except Exception as error:
 
@@ -275,42 +361,54 @@ except Exception as error:
 
 
 # ==========================================================
-# NORMALIZE CLASS LABELS
-#
-# IMPORTANT:
-# Streamlit Cloud was receiving mixed float/string labels.
-# We convert all labels to strings and then map them to
-# integer IDs for metric calculation.
+# NORMALIZE MODEL CLASSES
 # ==========================================================
 
-model_classes = list(model.classes_)
+model_classes = list(
+    model.classes_
+)
+
 
 model_class_strings = [
-    str(value) for value in model_classes
+    str(value).strip()
+    for value in model_classes
 ]
+
+
+# ==========================================================
+# NORMALIZE TRUE AND PREDICTED LABELS
+# ==========================================================
 
 y_true_strings = [
-    str(value) for value in y_test_original
+    str(value).strip()
+    for value in y_test_original
 ]
+
 
 y_pred_strings = [
-    str(value) for value in y_pred_original
+    str(value).strip()
+    for value in y_pred_original
 ]
 
 
-# Create a stable mapping from model class -> integer
+# ==========================================================
+# MAP MODEL CLASSES TO INTEGER IDS
+# ==========================================================
+
 class_to_id = {
     class_name: index
-    for index, class_name in enumerate(model_class_strings)
+    for index, class_name
+    in enumerate(model_class_strings)
 }
 
 
 # ==========================================================
-# CHECK FOR UNKNOWN TARGET CLASSES
+# CHECK FOR UNKNOWN CLASSES
 # ==========================================================
 
 unknown_classes = sorted(
-    set(y_true_strings) - set(class_to_id.keys())
+    set(y_true_strings)
+    - set(class_to_id.keys())
 )
 
 
@@ -322,43 +420,70 @@ if unknown_classes:
         + ", ".join(unknown_classes)
     )
 
+    st.write(
+        "Classes expected by model:",
+        model_class_strings
+    )
+
+    st.write(
+        "Classes found in uploaded file:",
+        sorted(set(y_true_strings))
+    )
+
     st.stop()
 
 
 # ==========================================================
-# CONVERT LABELS TO INTEGER IDs
+# CONVERT LABELS TO INTEGER IDS
 # ==========================================================
 
 y_true = np.array(
-    [class_to_id[value] for value in y_true_strings],
+    [
+        class_to_id[value]
+        for value in y_true_strings
+    ],
     dtype=int
 )
+
 
 y_pred = np.array(
-    [class_to_id[value] for value in y_pred_strings],
+    [
+        class_to_id[value]
+        for value in y_pred_strings
+    ],
     dtype=int
 )
 
-# Integer class labels corresponding exactly to columns
-# of model.predict_proba()
+
+# ==========================================================
+# CLASS IDS
+# ==========================================================
+
 class_ids = np.arange(
     len(model_class_strings)
 )
 
 
 # ==========================================================
-# CALCULATE METRICS
+# CALCULATE EVALUATION METRICS
 # ==========================================================
 
 try:
 
+    # ------------------------------------------------------
     # Accuracy
+    # ------------------------------------------------------
+
     accuracy = accuracy_score(
         y_true,
         y_pred
     )
 
+
+    # ------------------------------------------------------
     # Precision
+    # ------------------------------------------------------
+
     precision = precision_score(
         y_true,
         y_pred,
@@ -366,7 +491,11 @@ try:
         zero_division=0
     )
 
+
+    # ------------------------------------------------------
     # Recall
+    # ------------------------------------------------------
+
     recall = recall_score(
         y_true,
         y_pred,
@@ -374,7 +503,11 @@ try:
         zero_division=0
     )
 
-    # F1
+
+    # ------------------------------------------------------
+    # F1 Score
+    # ------------------------------------------------------
+
     f1 = f1_score(
         y_true,
         y_pred,
@@ -382,21 +515,21 @@ try:
         zero_division=0
     )
 
+
+    # ------------------------------------------------------
     # MCC
+    # ------------------------------------------------------
+
     mcc = matthews_corrcoef(
         y_true,
         y_pred
     )
 
+
     # ------------------------------------------------------
-    # Multiclass AUC
+    # AUC
     # ------------------------------------------------------
 
-    # Dry Bean is a multiclass problem.
-    # predict_proba columns follow model.classes_.
-    #
-    # We use integer class IDs so sklearn never has to
-    # compare strings and floats.
     auc = roc_auc_score(
         y_true,
         y_proba,
@@ -404,6 +537,7 @@ try:
         average="weighted",
         labels=class_ids
     )
+
 
 except Exception as error:
 
@@ -415,7 +549,7 @@ except Exception as error:
 
 
 # ==========================================================
-# SELECTED MODEL RESULT
+# SELECTED MODEL RESULTS
 # ==========================================================
 
 st.markdown(
@@ -496,11 +630,6 @@ st.markdown(
 )
 
 
-# Use model class names so all seven Dry Bean classes
-# are represented consistently.
-class_labels = model_class_strings
-
-
 cm = confusion_matrix(
     y_true,
     y_pred,
@@ -510,8 +639,8 @@ cm = confusion_matrix(
 
 cm_df = pd.DataFrame(
     cm,
-    index=class_labels,
-    columns=class_labels
+    index=model_class_strings,
+    columns=model_class_strings
 )
 
 
@@ -559,6 +688,7 @@ st.pyplot(
     use_container_width=False
 )
 
+
 plt.close(fig)
 
 
@@ -576,7 +706,7 @@ report = classification_report(
     y_true,
     y_pred,
     labels=class_ids,
-    target_names=class_labels,
+    target_names=model_class_strings,
     output_dict=True,
     zero_division=0
 )
@@ -616,6 +746,7 @@ if os.path.exists(comparison_file):
             comparison_file
         )
 
+
         numeric_columns = [
             "Accuracy",
             "AUC",
@@ -624,6 +755,7 @@ if os.path.exists(comparison_file):
             "F1",
             "MCC"
         ]
+
 
         for column in numeric_columns:
 
@@ -645,22 +777,30 @@ if os.path.exists(comparison_file):
 
 
         # --------------------------------------------------
-        # Winner
+        # OVERALL WINNER
         # --------------------------------------------------
 
         if "F1" in comparison_df.columns:
 
-            winner_row = comparison_df.loc[
+            winner_index = (
                 comparison_df["F1"].idxmax()
-            ]
+            )
+
+
+            winner_row = (
+                comparison_df.loc[winner_index]
+            )
+
 
             winner_name = winner_row[
                 "ML Model"
             ]
 
-            winner_f1 = winner_row[
-                "F1"
-            ]
+
+            winner_f1 = float(
+                winner_row["F1"]
+            )
+
 
             st.success(
                 f"🏆 Overall Winner based on F1 Score: "
